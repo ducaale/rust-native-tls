@@ -174,8 +174,11 @@ impl Certificate {
     pub fn stack_from_pem(buf: &[u8]) -> Result<Vec<Certificate>, Error> {
         pem::PemBlock::new(buf)
             .map(|pem| {
-                CertContext::from_pem(std::str::from_utf8(pem).map_err(io::Error::other)?)
-                    .map(Certificate)
+                CertContext::from_pem(
+                    std::str::from_utf8(pem)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?,
+                )
+                .map(Certificate)
             })
             .map(|res| res.map_err(Error))
             .collect()
@@ -313,7 +316,8 @@ impl TlsConnector {
                     }
                 }
 
-                Err(io::Error::other(
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
                     "unable to find any user-specified roots in the final cert chain",
                 ))
             });

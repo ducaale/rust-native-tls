@@ -22,7 +22,7 @@ fn have_min_max_version() -> bool {
 }
 
 fn main() {
-    println!("cargo::rustc-check-cfg=cfg(have_min_max_version)");
+    println!("cargo:rustc-check-cfg=cfg(have_min_max_version)");
     if have_min_max_version() {
         println!("cargo:rustc-cfg=have_min_max_version");
     }

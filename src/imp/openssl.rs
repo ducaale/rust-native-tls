@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use openssl::error::ErrorStack;
 use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
@@ -10,13 +11,12 @@ use openssl::ssl::{
 use openssl::x509::store::X509StoreBuilder;
 use openssl::x509::{X509VerifyResult, X509};
 use openssl_probe::ProbeResult;
-use std::sync::LazyLock;
 use std::{error, fmt, io};
 
 use crate::{Protocol, TlsAcceptorBuilder, TlsConnectorBuilder};
 use log::debug;
 
-static PROBE_RESULT: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
+static PROBE_RESULT: Lazy<ProbeResult> = Lazy::new(openssl_probe::probe);
 
 #[cfg(have_min_max_version)]
 fn supported_protocols(
@@ -396,17 +396,22 @@ impl TlsAcceptor {
             let alpn_wire_format = alpn_wire_format(&builder.accept_alpn)?;
             acceptor.set_alpn_protos(&alpn_wire_format)?;
             // set up ALPN selection routine - as select_next_proto
-            acceptor.set_alpn_select_callback(move |_: &mut openssl::ssl::SslRef, client_list: &[u8]| {
-                openssl::ssl::select_next_proto(&alpn_wire_format, client_list).and_then(|selected| {
-                    if selected.is_empty() || selected.len() > client_list.len() {
-                        return None;
-                    }
-                    // return string from the client list to separate it from alpn_wire_format's lifetime
-                    // https://github.com/rust-openssl/rust-openssl/pull/2360#issuecomment-2651522324
-                    client_list.windows(selected.len()).find(|&item| item == selected)
-                })
-                .ok_or(openssl::ssl::AlpnError::NOACK)
-            });
+            acceptor.set_alpn_select_callback(
+                move |_: &mut openssl::ssl::SslRef, client_list: &[u8]| {
+                    openssl::ssl::select_next_proto(&alpn_wire_format, client_list)
+                        .and_then(|selected| {
+                            if selected.is_empty() || selected.len() > client_list.len() {
+                                return None;
+                            }
+                            // return string from the client list to separate it from alpn_wire_format's lifetime
+                            // https://github.com/rust-openssl/rust-openssl/pull/2360#issuecomment-2651522324
+                            client_list
+                                .windows(selected.len())
+                                .find(|&item| item == selected)
+                        })
+                        .ok_or(openssl::ssl::AlpnError::NOACK)
+                },
+            );
         }
         for cert in builder.identity.0.chain.iter() {
             // https://www.openssl.org/docs/manmaster/man3/SSL_CTX_add_extra_chain_cert.html
@@ -499,7 +504,9 @@ impl<S: io::Read + io::Write> TlsStream<S> {
         match self.0.shutdown() {
             Ok(_) => Ok(()),
             Err(ref e) if e.code() == ssl::ErrorCode::ZERO_RETURN => Ok(()),
-            Err(e) => Err(e.into_io_error().unwrap_or_else(io::Error::other)),
+            Err(e) => Err(e
+                .into_io_error()
+                .unwrap_or_else(|e| io::Error::new(io::ErrorKind::Other, e))),
         }
     }
 }
